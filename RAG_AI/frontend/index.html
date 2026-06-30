@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG Chatbot — IA</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #f5f5f5; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1rem; }
+  #app { background: #fff; border-radius: 16px; border: 1px solid #e0e0e0; width: 100%; max-width: 720px; display: flex; flex-direction: column; height: 90vh; max-height: 760px; overflow: hidden; }
+  #header { padding: 1rem 1.25rem; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; gap: 10px; }
+  #header h1 { font-size: 16px; font-weight: 600; }
+  #header p { font-size: 12px; color: #888; margin-top: 2px; }
+  #dot { width: 9px; height: 9px; border-radius: 50%; background: #ccc; flex-shrink: 0; }
+  #dot.ready { background: #4caf50; }
+  #dot.loading { background: #ff9800; animation: pulse 1s infinite; }
+  #stats { font-size: 11px; color: #aaa; margin-left: auto; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  #upload-bar { padding: .6rem 1rem; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; gap: 10px; font-size: 13px; color: #555; }
+  #upload-bar input { font-size: 13px; }
+  #upload-btn { padding: 5px 14px; border-radius: 8px; border: 1px solid #ddd; background: #fafafa; cursor: pointer; font-size: 13px; }
+  #upload-btn:hover { background: #f0f0f0; }
+  #upload-status { font-size: 12px; color: #4caf50; }
+  #messages { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 12px; }
+  .msg { display: flex; gap: 8px; align-items: flex-end; }
+  .msg.user { flex-direction: row-reverse; }
+  .bubble { padding: 10px 14px; border-radius: 16px; font-size: 14px; line-height: 1.6; max-width: 80%; white-space: pre-wrap; }
+  .msg.user .bubble { background: #1a1a1a; color: #fff; border-bottom-right-radius: 4px; }
+  .msg.bot .bubble { background: #f0f0f0; color: #1a1a1a; border-bottom-left-radius: 4px; }
+  .avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+  .source-tag { font-size: 11px; color: #aaa; margin-top: 4px; padding-left: 4px; }
+  .typing span { display: inline-block; animation: blink 1.2s infinite; }
+  .typing span:nth-child(2) { animation-delay: .2s; }
+  .typing span:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%,80%,100%{opacity:0} 40%{opacity:1} }
+  #footer { padding: .75rem 1rem; border-top: 1px solid #e0e0e0; display: flex; gap: 8px; }
+  #q { flex: 1; padding: 10px 14px; border-radius: 24px; border: 1px solid #ddd; font-size: 14px; outline: none; background: #fafafa; }
+  #q:focus { border-color: #aaa; background: #fff; }
+  #send { padding: 10px 20px; border-radius: 24px; border: none; background: #1a1a1a; color: #fff; font-size: 14px; cursor: pointer; }
+  #send:hover { background: #333; }
+  #send:disabled { opacity: .4; cursor: default; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="header">
+    <div id="dot" class="loading"></div>
+    <div>
+      <h1>RAG Chatbot — Intelligence Artificielle</h1>
+      <p>Wikipedia + vos PDFs · Embeddings · Phi-3 local</p>
+    </div>
+    <span id="stats">Chargement...</span>
+  </div>
+
+  <div id="upload-bar">
+    📄 Ajouter un PDF :
+    <input type="file" id="pdf-input" accept=".pdf" />
+    <button id="upload-btn" onclick="uploadPDF()">Indexer</button>
+    <span id="upload-status"></span>
+  </div>
+
+  <div id="messages">
+    <div class="msg bot">
+      <div class="avatar">🤖</div>
+      <div>
+        <div class="bubble">Bonjour ! Je suis alimenté par Wikipedia et vos PDFs. Posez-moi vos questions sur l'IA.</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="footer">
+    <input id="q" type="text" placeholder="Posez votre question..." disabled />
+    <button id="send" disabled onclick="ask()">Envoyer</button>
+  </div>
+</div>
+
+<script>
+const API = "http://localhost:8000";
+
+async function loadStats() {
+  try {
+    const r = await fetch(`${API}/stats`);
+    const d = await r.json();
+    document.getElementById("stats").textContent = `${d.total_chunks} chunks indexés`;
+    document.getElementById("dot").className = "ready";
+    document.getElementById("q").disabled = false;
+    document.getElementById("send").disabled = false;
+  } catch {
+    document.getElementById("stats").textContent = "Backend non connecté";
+    document.getElementById("dot").className = "";
+    setTimeout(loadStats, 3000);
+  }
+}
+
+async function uploadPDF() {
+  const file = document.getElementById("pdf-input").files[0];
+  if (!file) return;
+  const status = document.getElementById("upload-status");
+  status.textContent = "Indexation...";
+  status.style.color = "#ff9800";
+  const form = new FormData();
+  form.append("file", file);
+  const r = await fetch(`${API}/upload`, { method: "POST", body: form });
+  const d = await r.json();
+  status.textContent = "✅ " + d.message;
+  status.style.color = "#4caf50";
+  loadStats();
+}
+
+function addMsg(role, text) {
+  const msgs = document.getElementById("messages");
+  const div = document.createElement("div");
+  div.className = `msg ${role}`;
+  div.innerHTML = `<div class="avatar">${role === "user" ? "👤" : "🤖"}</div><div><div class="bubble">${text}</div></div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return div;
+}
+
+function addTyping() {
+  const msgs = document.getElementById("messages");
+  const div = document.createElement("div");
+  div.className = "msg bot";
+  div.innerHTML = `<div class="avatar">🤖</div><div class="bubble"><span class="typing"><span>●</span><span>●</span><span>●</span></span></div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return div;
+}
+
+async function ask() {
+  const q = document.getElementById("q").value.trim();
+  if (!q) return;
+  document.getElementById("q").value = "";
+  document.getElementById("send").disabled = true;
+  addMsg("user", q);
+  const typing = addTyping();
+  const r = await fetch(`${API}/ask`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query: q })
+  });
+  const d = await r.json();
+  typing.remove();
+  addMsg("bot", d.answer.replace(/\n/g, "<br>"));
+  document.getElementById("send").disabled = false;
+  document.getElementById("q").focus();
+}
+
+document.getElementById("q").addEventListener("keydown", e => { if (e.key === "Enter") ask(); });
+loadStats();
+</script>
+</body>
+</html>
